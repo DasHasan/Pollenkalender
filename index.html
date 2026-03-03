@@ -21,41 +21,36 @@
       font-family: -apple-system, system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
-      /* push content above bottom nav + home indicator */
-      padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
-      /* push content below status bar */
-      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
     }
 
     /* ── Header ─────────────────────────────────── */
     header {
       background: linear-gradient(150deg, #14532d, #16a34a);
       color: white;
-      padding: 0.875rem 1rem 0.875rem;
+      padding: calc(0.875rem + env(safe-area-inset-top)) 1rem 0.875rem;
       display: flex; align-items: center; gap: 0.625rem;
     }
     header h1  { font-size: 1.15rem; font-weight: 800; letter-spacing: -.3px; }
     header .sub { font-size: 0.72rem; opacity: 0.75; margin-top: 1px; }
 
-    /* ── Bottom navigation ───────────────────────── */
+    /* ── Top navigation ──────────────────────────── */
     nav {
-      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
       background: white;
-      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
       display: flex;
-      padding-bottom: env(safe-area-inset-bottom);
-      box-shadow: 0 -2px 12px rgba(0,0,0,.07);
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
     }
     nav button {
-      flex: 1; border: none; background: none;
-      display: flex; flex-direction: column; align-items: center; gap: 2px;
-      padding: 0.55rem 0.25rem;
-      color: var(--muted); font-size: 0.6rem; font-weight: 700;
+      flex: 1; border: none; border-bottom: 3px solid transparent; background: none;
+      padding: 0.7rem 0.25rem;
+      color: var(--muted); font-size: 0.68rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: .04em;
       cursor: pointer; transition: color .15s;
     }
-    nav button .ni { font-size: 1.4rem; line-height: 1; }
-    nav button.active { color: var(--green); }
+    nav button .ni { font-size: 1.1rem; display: block; margin-bottom: 2px; }
+    nav button.active { color: var(--green); border-bottom-color: var(--green); }
 
     /* ── Main / Tabs ──────────────────────────────── */
     main { padding: 0.875rem 0.875rem 0; }
@@ -304,6 +299,21 @@
   </div>
 </header>
 
+<nav>
+  <button class="active" data-tab="heute" onclick="showTab('heute')">
+    <span class="ni">🌿</span>Heute
+  </button>
+  <button data-tab="kalender" onclick="showTab('kalender')">
+    <span class="ni">📅</span>Kalender
+  </button>
+  <button data-tab="verlauf" onclick="showTab('verlauf')">
+    <span class="ni">📋</span>Verlauf
+  </button>
+  <button data-tab="analyse" onclick="showTab('analyse')">
+    <span class="ni">📊</span>Analyse
+  </button>
+</nav>
+
 <main>
 
   <!-- ══ TAB: HEUTE ══ -->
@@ -399,22 +409,6 @@
   </div>
 
 </main>
-
-<!-- Bottom navigation -->
-<nav>
-  <button class="active" data-tab="heute" onclick="showTab('heute')">
-    <span class="ni">🌿</span>Heute
-  </button>
-  <button data-tab="kalender" onclick="showTab('kalender')">
-    <span class="ni">📅</span>Kalender
-  </button>
-  <button data-tab="verlauf" onclick="showTab('verlauf')">
-    <span class="ni">📋</span>Verlauf
-  </button>
-  <button data-tab="analyse" onclick="showTab('analyse')">
-    <span class="ni">📊</span>Analyse
-  </button>
-</nav>
 
 <!-- Bottom-sheet detail popup -->
 <div class="overlay" id="overlay" onclick="closeOverlay(event)">
@@ -547,7 +541,11 @@ async function fetchDWD() {
     pollenData = region.Pollen; // all pollen types, fully dynamic
     pollenTS   = json.last_update;
 
-    setStatus('ok', 'Stand: ' + new Date(pollenTS).toLocaleString('de-DE'));
+    // DWD format: "2024-03-03 11:00 Uhr" — fix by replacing space→T and stripping "Uhr"
+    const tsClean = (pollenTS ?? '').replace(/\s*Uhr\s*$/, '').replace(' ', 'T');
+    const tsDate  = new Date(tsClean);
+    const tsLabel = isNaN(tsDate) ? pollenTS : tsDate.toLocaleString('de-DE');
+    setStatus('ok', 'Stand: ' + tsLabel);
     document.getElementById('dwd-ts').textContent =
       'Quelle: Deutscher Wetterdienst · ' + region.partregion_name;
 
