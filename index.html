@@ -433,6 +433,11 @@
 
 const STORAGE_KEY  = 'pollenkalender_v2';
 const DWD_URL      = 'https://opendata.dwd.de/climate_environment/health/alerts/s31fg.json';
+// CORS proxies tried in order; first success wins
+const CORS_PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 // Hamburg is part of "Geest, Schleswig-Holstein und Hamburg" (partregion_id 12)
 const HAMBURG_REGION_ID = 12;
 
@@ -513,11 +518,25 @@ function fmtDate(dateStr) {
 // DWD API
 // ═══════════════════════════════════════════════════════════
 
+async function fetchWithProxy(url) {
+  // Try direct first, then each CORS proxy
+  const attempts = [() => fetch(url, { cache: 'no-cache' }),
+                    ...CORS_PROXIES.map(p => () => fetch(p(url), { cache: 'no-cache' }))];
+  let lastErr;
+  for (const attempt of attempts) {
+    try {
+      const res = await attempt();
+      if (res.ok) return res;
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch(e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
 async function fetchDWD() {
   setStatus('loading', 'Lade DWD-Pollenflugdaten…');
   try {
-    const res  = await fetch(DWD_URL, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res  = await fetchWithProxy(DWD_URL);
     const json = await res.json();
 
     // Find Hamburg partregion dynamically
