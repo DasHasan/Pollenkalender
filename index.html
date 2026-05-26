@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Mein Pollenkalender</title>
+  <style>
+    :root {
+      --bg:     #f0f2f5;
+      --card:   #ffffff;
+      --text:   #1a1a2e;
+      --muted:  #6b7280;
+      --border: #e5e7eb;
+      --green:  #16a34a;
+      --nav-h:  60px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    header {
+      background: linear-gradient(150deg, #14532d, #16a34a);
+      color: white;
+      padding: calc(0.875rem + env(safe-area-inset-top)) 1rem 0.875rem;
+      display: flex; align-items: center; gap: 0.625rem;
+    }
+    header h1  { font-size: 1.15rem; font-weight: 800; letter-spacing: -.3px; }
+    header .sub { font-size: 0.72rem; opacity: 0.75; margin-top: 1px; }
+
+    /* ── Top navigation ──────────────────────────── */
+    nav {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    nav button {
+      flex: 1; border: none; border-bottom: 3px solid transparent; background: none;
+      padding: 0.7rem 0.25rem;
+      color: var(--muted); font-size: 0.68rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .04em;
+      cursor: pointer; transition: color .15s;
+    }
+    nav button .ni { font-size: 1.1rem; display: block; margin-bottom: 2px; }
+    nav button.active { color: var(--green); border-bottom-color: var(--green); }
+
+    /* ── Main / Tabs ──────────────────────────────── */
+    main { padding: 0.875rem 0.875rem 0; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+
+    /* ── Card ────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 1rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      margin-bottom: 0.875rem;
+    }
+    .card-title {
+      font-size: 0.875rem; font-weight: 800;
+      margin-bottom: 0.875rem; color: var(--text);
+    }
+
+    /* ── DWD Status ──────────────────────────────── */
+    .status {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.72rem; color: var(--muted); margin-bottom: 0.75rem;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .s-loading .status-dot { background: #f59e0b; animation: blink 1s infinite; }
+    .s-ok .status-dot      { background: var(--green); }
+    .s-error .status-dot   { background: #dc2626; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── Pollen grid – 4 columns, 2 rows for 8 types ─ */
+    .pollen-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+    }
+    .pollen-tile {
+      border-radius: 12px; border: 1.5px solid;
+      padding: 0.5rem 0.25rem 0.4rem;
+      text-align: center;
+    }
+    .pollen-tile .p-name { font-size: 0.65rem; font-weight: 800; }
+    .pollen-tile .p-val  { font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 0.15rem 0; }
+    .pollen-tile .p-lbl  { font-size: 0.55rem; line-height: 1.2; }
+    .pollen-tile .p-fore {
+      display: flex; justify-content: space-around;
+      margin-top: 0.35rem; font-size: 0.5rem; gap: 0;
+    }
+    .pollen-tile .p-fore span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+    /* Level colours */
+    .lv-none { border-color:#9ca3af; background:rgba(156,163,175,.08); color:#6b7280; }
+    .lv-0    { border-color:#16a34a; background:rgba(22,163,74,.08);   color:#15803d; }
+    .lv-05   { border-color:#84cc16; background:rgba(132,204,22,.1);   color:#4d7c0f; }
+    .lv-1    { border-color:#ca8a04; background:rgba(202,138,4,.1);    color:#92400e; }
+    .lv-15   { border-color:#ea580c; background:rgba(234,88,12,.08);   color:#c2410c; }
+    .lv-2    { border-color:#ea580c; background:rgba(234,88,12,.14);   color:#9a3412; }
+    .lv-25   { border-color:#dc2626; background:rgba(220,38,38,.08);   color:#991b1b; }
+    .lv-3    { border-color:#dc2626; background:rgba(220,38,38,.15);   color:#7f1d1d; }
+
+    /* ── Severity picker ─────────────────────────── */
+    .sev-row { display: flex; gap: 0.4rem; margin-top: 0.625rem; }
+    .sev-btn {
+      flex: 1; border: 2px solid var(--border); border-radius: 12px;
+      background: none; cursor: pointer; padding: 0.75rem 0.15rem 0.6rem;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 0.65rem; font-weight: 700; color: var(--muted);
+      min-height: 72px;
+    }
+    .sev-btn .e { font-size: 1.5rem; }
+    .sev-btn[data-s="1"].sel { border-color:#16a34a; background:rgba(22,163,74,.1);  color:#15803d; }
+    .sev-btn[data-s="2"].sel { border-color:#65a30d; background:rgba(101,163,13,.1); color:#4d7c0f; }
+    .sev-btn[data-s="3"].sel { border-color:#ca8a04; background:rgba(202,138,4,.1);  color:#92400e; }
+    .sev-btn[data-s="4"].sel { border-color:#ea580c; background:rgba(234,88,12,.1);  color:#c2410c; }
+    .sev-btn[data-s="5"].sel { border-color:#dc2626; background:rgba(220,38,38,.1);  color:#991b1b; }
+
+    /* ── Form ────────────────────────────────────── */
+    .form-gap { display: flex; flex-direction: column; gap: 1rem; }
+    label { font-size: 0.8rem; font-weight: 700; }
+    textarea {
+      width: 100%; padding: 0.75rem; margin-top: 0.4rem;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-family: inherit; font-size: 1rem; /* prevent iOS zoom */
+      resize: none; min-height: 80px;
+    }
+    textarea:focus { outline: none; border-color: var(--green); }
+
+    .btn {
+      width: 100%; padding: 0.9rem; border: none; border-radius: 12px;
+      font-size: 0.95rem; font-weight: 800; cursor: pointer;
+      letter-spacing: -.2px;
+    }
+    .btn-primary { background: linear-gradient(135deg,#14532d,#16a34a); color: white; }
+    .btn-warn    { background: #dc2626; color: white; }
+    .btn-outline { background: none; border: 1.5px solid var(--border); color: var(--muted); }
+    .btn:disabled { opacity: 0.35; }
+
+    /* ── Existing entry banner ───────────────────── */
+    .exists-banner {
+      background: #f0fdf4; border: 1.5px solid #bbf7d0;
+      border-radius: 12px; padding: 0.875rem; margin-bottom: 0.875rem;
+    }
+    .exists-banner .eb-title { font-size: 0.82rem; font-weight: 800; color: #15803d; }
+    .exists-banner .eb-sub   { font-size: 0.75rem; color: #555; margin-top: 0.2rem; }
+    .btn-sm {
+      margin-top: 0.625rem; padding: 0.5rem 1rem; border-radius: 8px;
+      font-size: 0.78rem; font-weight: 700; border: 1.5px solid var(--border);
+      background: white; color: var(--muted); cursor: pointer;
+    }
+
+    /* ── Calendar ────────────────────────────────── */
+    .cal-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .cal-nav strong { font-size: 1rem; font-weight: 800; }
+    .cal-nav button {
+      border: 1.5px solid var(--border); background: white;
+      border-radius: 8px; padding: 0.4rem 0.875rem;
+      font-size: 1rem; cursor: pointer; color: var(--text);
+    }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+    .cal-wd {
+      text-align: center; font-size: 0.62rem; font-weight: 800;
+      color: var(--muted); padding: 0.2rem 0; text-transform: uppercase;
+    }
+    .cal-cell {
+      aspect-ratio: 1; border-radius: 10px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-size: 0.8rem;
+    }
+    .cal-cell.future { background: #fafafa; color: #d1d5db; }
+    .cal-cell.past   { background: #f3f4f6; color: #9ca3af; }
+    .cal-cell.today  { outline: 2.5px solid var(--text); outline-offset: 1px; }
+    .cal-cell.has    { cursor: pointer; color: white; }
+    .cal-cell.has .cn { font-weight: 800; }
+    .cal-cell .cdot  { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.65); margin-top: 2px; }
+    .sev1 { background: #16a34a; }
+    .sev2 { background: #65a30d; }
+    .sev3 { background: #ca8a04; }
+    .sev4 { background: #ea580c; }
+    .sev5 { background: #dc2626; }
+
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; padding: 0 0.125rem;
+      font-size: 0.7rem; color: var(--muted); margin-top: 0.5rem;
+    }
+    .ldot {
+      display: inline-block; width: 9px; height: 9px;
+      border-radius: 50%; margin-right: 3px; vertical-align: middle;
+    }
+
+    /* ── Entry list ──────────────────────────────── */
+    .entry-list { display: flex; flex-direction: column; gap: 0.625rem; }
+    .entry-row {
+      display: grid; grid-template-columns: 44px 1fr;
+      gap: 0.75rem; align-items: start;
+      background: var(--card); border-radius: 14px;
+      padding: 0.875rem; cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    .entry-badge {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 1.1rem; color: white; flex-shrink: 0;
+    }
+    .entry-date  { font-weight: 800; font-size: 0.82rem; }
+    .entry-sub   { font-size: 0.73rem; color: var(--muted); margin-top: 1px; }
+    .entry-notes { font-size: 0.78rem; margin-top: 0.25rem; }
+    .entry-pollen{ font-size: 0.68rem; color: var(--muted); margin-top: 0.3rem; }
+
+    /* ── Analysis ────────────────────────────────── */
+    .insight {
+      background: #f0fdf4; border-left: 4px solid var(--green);
+      border-radius: 0 10px 10px 0; padding: 0.875rem; margin-bottom: 0.625rem;
+    }
+    .insight h4 { font-size: 0.875rem; font-weight: 800; }
+    .insight p  { font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem; }
+    .tag {
+      display: inline-block; padding: 1px 7px; border-radius: 20px;
+      font-size: 0.62rem; font-weight: 800; margin-left: 5px; color: white;
+    }
+    .corr-row { display: flex; align-items: center; gap: 0.625rem; padding: 0.4rem 0; }
+    .corr-name { width: 72px; font-size: 0.78rem; font-weight: 700; flex-shrink: 0; }
+    .corr-track { flex: 1; height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; }
+    .corr-fill  { height: 100%; border-radius: 5px; transition: width .5s ease; }
+    .corr-pct   { width: 35px; text-align: right; font-size: 0.72rem; color: var(--muted); }
+
+    /* ── Info / empty state ──────────────────────── */
+    .info-box {
+      text-align: center; padding: 1.5rem 1rem;
+      color: var(--muted); font-size: 0.82rem;
+    }
+    .info-box .ib-i { font-size: 2.25rem; margin-bottom: 0.5rem; }
+
+    /* ── Centered modal ──────────────────────────── */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 200;
+      align-items: center; justify-content: center;
+      padding: 1.25rem;
+    }
+    .overlay.open { display: flex; }
+    .sheet {
+      background: white;
+      border-radius: 20px;
+      padding: 1.25rem;
+      width: 100%; max-height: 82vh; overflow-y: auto;
+      position: relative;
+    }
+    .sheet h3  { font-size: 1rem; font-weight: 800; margin-bottom: 1rem; padding-right: 2rem; }
+    .close-x   {
+      position: absolute; top: 1.25rem; right: 1.25rem;
+      background: #f3f4f6; border: none; border-radius: 50%;
+      width: 28px; height: 28px; font-size: 0.9rem;
+      cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center;
+    }
+    .sec-lbl {
+      font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); margin: 0.875rem 0 0.4rem;
+    }
+    .mini-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem; }
+    .mini-row   {
+      display: flex; justify-content: space-between;
+      padding: 0.35rem 0.6rem; background: #f9fafb;
+      border-radius: 8px; font-size: 0.78rem;
+    }
+    .sheet-btns { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .sheet-btns .btn { font-size: 0.85rem; padding: 0.75rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🌿 Pollenkalender</h1>
+    <div class="sub">Hamburg · Allergie-Tagebuch</div>
+  </div>
+</header>
+
+<nav>
+  <button class="active" data-tab="heute" onclick="showTab('heute')">
+    <span class="ni">🌿</span>Heute
+  </button>
+  <button data-tab="kalender" onclick="showTab('kalender')">
+    <span class="ni">📅</span>Kalender
+  </button>
+  <button data-tab="verlauf" onclick="showTab('verlauf')">
+    <span class="ni">📋</span>Verlauf
+  </button>
+  <button data-tab="analyse" onclick="showTab('analyse')">
+    <span class="ni">📊</span>Analyse
+  </button>
+</nav>
+
+<main>
+
+  <!-- ══ TAB: HEUTE ══ -->
+  <div id="tab-heute" class="tab active">
+
+    <div class="card">
+      <div class="card-title">📍 Pollenflug Hamburg</div>
+      <div id="status" class="status s-loading">
+        <div class="status-dot"></div><span>Lade DWD-Daten…</span>
+      </div>
+      <div id="pollen-grid" class="pollen-grid"></div>
+      <div id="dwd-ts" style="font-size:.62rem;color:#9ca3af;margin-top:.625rem;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">✏️ Wie geht's dir heute?</div>
+
+      <div id="exists-banner" class="exists-banner" style="display:none">
+        <div class="eb-title">✓ Eintrag für heute vorhanden</div>
+        <div id="exists-detail" class="eb-sub"></div>
+        <button class="btn-sm" onclick="editToday()">Bearbeiten</button>
+      </div>
+
+      <form id="entry-form" class="form-gap">
+        <div>
+          <label>Schweregrad der Allergie</label>
+          <div class="sev-row">
+            <button type="button" class="sev-btn" data-s="1" onclick="pickSev(1)">
+              <span class="e">😊</span>Keine
+            </button>
+            <button type="button" class="sev-btn" data-s="2" onclick="pickSev(2)">
+              <span class="e">🙂</span>Leicht
+            </button>
+            <button type="button" class="sev-btn" data-s="3" onclick="pickSev(3)">
+              <span class="e">😐</span>Mittel
+            </button>
+            <button type="button" class="sev-btn" data-s="4" onclick="pickSev(4)">
+              <span class="e">😣</span>Stark
+            </button>
+            <button type="button" class="sev-btn" data-s="5" onclick="pickSev(5)">
+              <span class="e">😫</span>Extrem
+            </button>
+          </div>
+        </div>
+        <div>
+          <label for="notes">Notizen (optional)</label>
+          <textarea id="notes" placeholder="z.B. Augen jucken, Nase läuft…"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" id="save-btn" disabled>
+          Eintrag speichern
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ══ TAB: KALENDER ══ -->
+  <div id="tab-kalender" class="tab">
+    <div class="card">
+      <div class="cal-nav">
+        <button onclick="stepMonth(-1)">‹</button>
+        <strong id="month-label"></strong>
+        <button onclick="stepMonth(1)">›</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+    <div class="legend">
+      <span><span class="ldot" style="background:#16a34a"></span>1 Keine</span>
+      <span><span class="ldot" style="background:#65a30d"></span>2 Leicht</span>
+      <span><span class="ldot" style="background:#ca8a04"></span>3 Mittel</span>
+      <span><span class="ldot" style="background:#ea580c"></span>4 Stark</span>
+      <span><span class="ldot" style="background:#dc2626"></span>5 Extrem</span>
+    </div>
+  </div>
+
+  <!-- ══ TAB: VERLAUF ══ -->
+  <div id="tab-verlauf" class="tab">
+    <div id="entry-list" class="entry-list"></div>
+  </div>
+
+  <!-- ══ TAB: ANALYSE ══ -->
+  <div id="tab-analyse" class="tab">
+    <div class="card">
+      <div class="card-title">🔬 Mögliche Allergene</div>
+      <div id="insights"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 Korrelation Pollen ↔ Symptome</div>
+      <p style="font-size:.72rem;color:var(--muted);margin-bottom:.875rem">
+        Je höher, desto stärker korreliert dieser Pollen mit deinen Symptomen.
+      </p>
+      <div id="corr-bars"></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Bottom-sheet detail popup -->
+<div class="overlay" id="overlay" onclick="closeOverlay(event)">
+  <div class="sheet">
+    <button class="close-x" onclick="closeOverlay()">✕</button>
+    <h3 id="popup-title"></h3>
+    <div id="popup-body"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+
+const STORAGE_KEY  = 'pollenkalender_v2';
+const DWD_URL      = 'https://opendata.dwd.de/climate_environment/health/alerts/s31fg.json';
+// CORS proxies tried in order; first success wins
+const CORS_PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+// Hamburg is part of "Geest, Schleswig-Holstein und Hamburg" (partregion_id 12)
+const HAMBURG_REGION_ID = 12;
+
+/** Map API string values → numeric 0–3 */
+const LEVEL_NUM = {
+  '-1':0, '0':0, '0-1':0.5, '1':1, '1-2':1.5,
+  '2':2, '2-3':2.5, '3':3
+};
+/** Map API string values → German label */
+const LEVEL_LBL = {
+  '-1':'–', '0':'keine', '0-1':'keine–gering',
+  '1':'gering', '1-2':'gering–mittel',
+  '2':'mittel', '2-3':'mittel–hoch', '3':'hoch'
+};
+/** CSS class suffix for pollen tile background */
+const LEVEL_CLS = {
+  '-1':'none','0':'0','0-1':'05','1':'1','1-2':'15',
+  '2':'2','2-3':'25','3':'3'
+};
+const SEV_COLOR  = ['','#16a34a','#65a30d','#ca8a04','#ea580c','#dc2626'];
+const SEV_LABEL  = ['','Keine','Leicht','Mittel','Stark','Extrem'];
+const WEEKDAYS   = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+
+let entries     = [];   // [{date, severity, notes, pollenData, savedAt}]
+let pollenData  = null; // Current DWD pollen data (all types, dynamic)
+let pollenTS    = null; // ISO timestamp of DWD last_update
+let selectedSev = null;
+let calMonth    = new Date();
+
+// ═══════════════════════════════════════════════════════════
+// LOCAL STORAGE
+// ═══════════════════════════════════════════════════════════
+
+function loadEntries() {
+  try { entries = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { entries = []; }
+}
+
+function saveEntries() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+
+function getEntry(dateStr) {
+  return entries.find(e => e.date === dateStr) ?? null;
+}
+
+function upsertEntry(entry) {
+  const i = entries.findIndex(e => e.date === entry.date);
+  if (i >= 0) entries[i] = entry; else entries.push(entry);
+  entries.sort((a,b) => b.date.localeCompare(a.date));
+  saveEntries();
+}
+
+function removeEntry(dateStr) {
+  entries = entries.filter(e => e.date !== dateStr);
+  saveEntries();
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATE HELPERS
+// ═══════════════════════════════════════════════════════════
+
+function today() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function fmtDate(dateStr) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('de-DE', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// DWD API
+// ═══════════════════════════════════════════════════════════
+
+async function fetchWithProxy(url) {
+  // Try direct first, then each CORS proxy
+  const attempts = [() => fetch(url, { cache: 'no-cache' }),
+                    ...CORS_PROXIES.map(p => () => fetch(p(url), { cache: 'no-cache' }))];
+  let lastErr;
+  for (const attempt of attempts) {
+    try {
+      const res = await attempt();
+      if (res.ok) return res;
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch(e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+async function fetchDWD() {
+  setStatus('loading', 'Lade DWD-Pollenflugdaten…');
+  try {
+    const res  = await fetchWithProxy(DWD_URL);
+    const json = await res.json();
+
+    // Find Hamburg partregion dynamically
+    const region = json.content.find(r => r.partregion_id === HAMBURG_REGION_ID);
+    if (!region) throw new Error('Hamburg-Partregion nicht gefunden (ID ' + HAMBURG_REGION_ID + ')');
+
+    pollenData = region.Pollen; // all pollen types, fully dynamic
+    pollenTS   = json.last_update;
+
+    // DWD format: "2024-03-03 11:00 Uhr" — fix by replacing space→T and stripping "Uhr"
+    const tsClean = (pollenTS ?? '').replace(/\s*Uhr\s*$/, '').replace(' ', 'T');
+    const tsDate  = new Date(tsClean);
+    const tsLabel = isNaN(tsDate) ? pollenTS : tsDate.toLocaleString('de-DE');
+    setStatus('ok', 'Stand: ' + tsLabel);
+    document.getElementById('dwd-ts').textContent =
+      'Quelle: Deutscher Wetterdienst · ' + region.partregion_name;
+
+    renderPollenGrid();
+    refreshTodayBanner();
+  } catch(err) {
+    setStatus('error', 'Fehler: ' + err.message);
+    console.error(err);
+  }
+}
+
+function setStatus(type, msg) {
+  const el = document.getElementById('status');
+  el.className = 's-' + type + ' status';
+  el.innerHTML = `<div class="status-dot"></div><span>${msg}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// POLLEN GRID RENDERING
+// ═══════════════════════════════════════════════════════════
+
+function dotColor(val) {
+  const n = LEVEL_NUM[val] ?? 0;
+  if (n === 0) return '#16a34a';
+  if (n <= 1)  return '#ca8a04';
+  if (n <= 2)  return '#ea580c';
+  return '#dc2626';
+}
+
+function renderPollenGrid() {
+  if (!pollenData) return;
+
+  // Sort high → low by today's level so worst offenders appear first
+  const sorted = Object.entries(pollenData).sort(
+    ([,a],[,b]) => (LEVEL_NUM[b.today] ?? 0) - (LEVEL_NUM[a.today] ?? 0)
+  );
+
+  document.getElementById('pollen-grid').innerHTML = sorted.map(([name, d]) => `
+    <div class="pollen-tile lv-${LEVEL_CLS[d.today] ?? 'none'}">
+      <div class="p-name">${name}</div>
+      <div class="p-val">${d.today === '-1' ? '–' : d.today}</div>
+      <div class="p-lbl">${LEVEL_LBL[d.today] ?? ''}</div>
+      <div class="p-fore">
+        <span><span class="dot" style="background:${dotColor(d.today)}"></span>H</span>
+        <span><span class="dot" style="background:${dotColor(d.tomorrow)}"></span>M</span>
+        <span><span class="dot" style="background:${dotColor(d.dayafter_to)}"></span>Ü</span>
+      </div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TODAY FORM
+// ═══════════════════════════════════════════════════════════
+
+function refreshTodayBanner() {
+  const ex  = getEntry(today());
+  const ban = document.getElementById('exists-banner');
+  const frm = document.getElementById('entry-form');
+  if (ex) {
+    ban.style.display = 'block';
+    frm.style.display = 'none';
+    document.getElementById('exists-detail').textContent =
+      `Schweregrad ${ex.severity} – ${SEV_LABEL[ex.severity]}` +
+      (ex.notes ? ` · "${ex.notes}"` : '');
+  } else {
+    ban.style.display = 'none';
+    frm.style.display = 'flex';
+  }
+}
+
+function editToday() {
+  const ex = getEntry(today());
+  if (ex) {
+    pickSev(ex.severity);
+    document.getElementById('notes').value = ex.notes ?? '';
+  }
+  document.getElementById('exists-banner').style.display = 'none';
+  document.getElementById('entry-form').style.display    = 'flex';
+}
+
+function pickSev(n) {
+  selectedSev = n;
+  document.querySelectorAll('.sev-btn').forEach(b =>
+    b.classList.toggle('sel', +b.dataset.s === n)
+  );
+  document.getElementById('save-btn').disabled = false;
+}
+
+document.getElementById('entry-form').addEventListener('submit', e => {
+  e.preventDefault();
+  if (!selectedSev) return;
+
+  const entry = {
+    date:       today(),
+    severity:   selectedSev,
+    notes:      document.getElementById('notes').value.trim(),
+    pollenData: pollenData ? JSON.parse(JSON.stringify(pollenData)) : null,
+    savedAt:    new Date().toISOString()
+  };
+  upsertEntry(entry);
+
+  // Reset
+  selectedSev = null;
+  document.querySelectorAll('.sev-btn').forEach(b => b.classList.remove('sel'));
+  document.getElementById('notes').value = '';
+  document.getElementById('save-btn').disabled = true;
+
+  refreshTodayBanner();
+  renderCalendar();
+  renderEntryList();
+  renderAnalysis();
+  showTab('heute');
+});
+
+// ═══════════════════════════════════════════════════════════
+// CALENDAR
+// ═══════════════════════════════════════════════════════════
+
+function stepMonth(delta) {
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const year  = calMonth.getFullYear();
+  const month = calMonth.getMonth();
+  const t     = today();
+
+  document.getElementById('month-label').textContent =
+    new Date(year, month, 1).toLocaleDateString('de-DE', { month:'long', year:'numeric' });
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let startDow = new Date(year, month, 1).getDay() - 1; // Mon=0
+  if (startDow < 0) startDow = 6;
+
+  let html = WEEKDAYS.map(d => `<div class="cal-wd">${d}</div>`).join('');
+
+  for (let i = 0; i < startDow; i++) html += '<div class="cal-cell empty"></div>';
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const ds    = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const entry = getEntry(ds);
+    const isT   = ds === t;
+    const isFut = ds > t;
+
+    if (entry) {
+      html += `<div class="cal-cell has sev${entry.severity}${isT?' today':''}"
+                    onclick="showDetail('${ds}')">
+                 <span class="cn">${day}</span><div class="cdot"></div>
+               </div>`;
+    } else if (isFut) {
+      html += `<div class="cal-cell future${isT?' today':''}"><span>${day}</span></div>`;
+    } else {
+      html += `<div class="cal-cell past${isT?' today':''}"
+                    onclick="${isT ? "showTab('heute')" : "showDetail('" + ds + "')"}" >
+                 <span>${day}</span>
+               </div>`;
+    }
+  }
+
+  document.getElementById('cal-grid').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ENTRY LIST
+// ═══════════════════════════════════════════════════════════
+
+function renderEntryList() {
+  const el = document.getElementById('entry-list');
+  if (entries.length === 0) {
+    el.innerHTML = `<div class="info-box">
+      <div class="ib-i">📭</div>
+      <p>Noch keine Einträge.<br>Erfasse heute deinen ersten Eintrag!</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = entries.map(e => {
+    const pollenSummary = e.pollenData
+      ? Object.entries(e.pollenData)
+          .filter(([,v]) => (LEVEL_NUM[v.today] ?? 0) >= 1)
+          .map(([k,v]) => `${k} ${v.today}`)
+          .join(', ') || 'kein nennenswerter Pollenflug'
+      : 'keine Pollendaten gespeichert';
+
+    return `<div class="entry-row" onclick="showDetail('${e.date}')">
+      <div class="entry-badge" style="background:${SEV_COLOR[e.severity]}">${e.severity}</div>
+      <div>
+        <div class="entry-date">${fmtDate(e.date)}</div>
+        <div class="entry-sub">${SEV_LABEL[e.severity]} Allergie</div>
+        ${e.notes ? `<div class="entry-notes">${e.notes}</div>` : ''}
+        <div class="entry-pollen">🌿 ${pollenSummary}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DETAIL POPUP (bottom sheet)
+// ═══════════════════════════════════════════════════════════
+
+function showDetail(dateStr) {
+  const entry = getEntry(dateStr);
+  document.getElementById('popup-title').textContent = fmtDate(dateStr);
+
+  let html = '';
+  if (entry) {
+    html += `
+      <div style="display:flex;gap:.75rem;align-items:center;margin-bottom:1rem">
+        <div style="width:52px;height:52px;border-radius:50%;background:${SEV_COLOR[entry.severity]};
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.4rem;font-weight:900;color:white;flex-shrink:0">
+          ${entry.severity}
+        </div>
+        <div>
+          <div style="font-weight:800">${SEV_LABEL[entry.severity]} Allergie</div>
+          ${entry.notes ? `<div style="font-size:.82rem;color:var(--muted);margin-top:.2rem">${entry.notes}</div>` : ''}
+        </div>
+      </div>`;
+
+    if (entry.pollenData) {
+      const sorted = Object.entries(entry.pollenData).sort(
+        ([,a],[,b]) => (LEVEL_NUM[b.today]??0) - (LEVEL_NUM[a.today]??0)
+      );
+      html += `<div class="sec-lbl">Pollenflug an diesem Tag</div>
+               <div class="mini-grid">`;
+      for (const [pollen, d] of sorted) {
+        const n   = LEVEL_NUM[d.today] ?? 0;
+        const col = n >= 2 ? '#dc2626' : n >= 1 ? '#ea580c' : '#16a34a';
+        html += `<div class="mini-row">
+          <span>${pollen}</span>
+          <span style="font-weight:800;color:${col}">${LEVEL_LBL[d.today] ?? '–'}</span>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    html += `<div class="sheet-btns">
+      <button class="btn btn-warn" onclick="confirmDelete('${entry.date}')">Löschen</button>
+      <button class="btn btn-outline" onclick="closeOverlay()">Schließen</button>
+    </div>`;
+  } else {
+    html = `<div style="color:var(--muted);font-size:.85rem">Kein Eintrag für diesen Tag.</div>`;
+  }
+
+  document.getElementById('popup-body').innerHTML = html;
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeOverlay(e) {
+  if (!e || e.target === document.getElementById('overlay'))
+    document.getElementById('overlay').classList.remove('open');
+}
+
+function confirmDelete(dateStr) {
+  if (!confirm('Eintrag löschen?')) return;
+  removeEntry(dateStr);
+  closeOverlay();
+  refreshTodayBanner();
+  renderCalendar();
+  renderEntryList();
+  renderAnalysis();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ANALYSIS
+// ═══════════════════════════════════════════════════════════
+
+function renderAnalysis() {
+  renderInsights();
+  renderCorrBars();
+}
+
+function computeCorrelations() {
+  const withPollen = entries.filter(e => e.pollenData);
+  if (withPollen.length < 3) return null;
+
+  // Collect all pollen types dynamically
+  const types = new Set();
+  withPollen.forEach(e => Object.keys(e.pollenData).forEach(t => types.add(t)));
+
+  return [...types].map(pollen => {
+    const pairs = withPollen
+      .filter(e => e.pollenData[pollen] !== undefined)
+      .map(e => ({
+        p: LEVEL_NUM[e.pollenData[pollen].today] ?? 0,
+        s: e.severity
+      }));
+
+    if (pairs.length < 2) return null;
+
+    const n    = pairs.length;
+    const avgP = pairs.reduce((sum,x) => sum + x.p, 0) / n;
+    const avgS = pairs.reduce((sum,x) => sum + x.s, 0) / n;
+    let num = 0, dP = 0, dS = 0;
+    for (const x of pairs) {
+      num += (x.p - avgP) * (x.s - avgS);
+      dP  += (x.p - avgP) ** 2;
+      dS  += (x.s - avgS) ** 2;
+    }
+    const corr = (dP * dS) > 0 ? num / Math.sqrt(dP * dS) : 0;
+
+    const highPairs = pairs.filter(x => x.p >= 2);
+    const lowPairs  = pairs.filter(x => x.p < 1);
+    const avgSevHigh = highPairs.length ? highPairs.reduce((s,x)=>s+x.s,0)/highPairs.length : null;
+    const avgSevLow  = lowPairs.length  ? lowPairs.reduce((s,x)=>s+x.s,0)/lowPairs.length  : null;
+
+    return { pollen, corr, avgSevHigh, avgSevLow, n };
+  }).filter(Boolean).sort((a,b) => b.corr - a.corr);
+}
+
+function renderInsights() {
+  const el   = document.getElementById('insights');
+  const corr = computeCorrelations();
+
+  if (!corr) {
+    const have = entries.filter(e => e.pollenData).length;
+    el.innerHTML = `<div class="info-box">
+      <div class="ib-i">🔍</div>
+      <p>Mindestens 3 Einträge mit Pollendaten nötig.<br>
+         Aktuell: ${have} von ${entries.length}</p>
+    </div>`;
+    return;
+  }
+
+  const top = corr.filter(c => c.corr > 0.25);
+  if (top.length === 0) {
+    el.innerHTML = `<div class="insight">
+      <h4>Noch keine klare Korrelation erkennbar</h4>
+      <p>Füge mehr Einträge hinzu – Muster werden sichtbarer.</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = top.map(c => {
+    const str   = c.corr > 0.7 ? 'starke' : c.corr > 0.5 ? 'moderate' : 'schwache';
+    const color = c.corr > 0.7 ? '#991b1b' : c.corr > 0.5 ? '#c2410c' : '#92400e';
+    const cmp   = (c.avgSevHigh !== null && c.avgSevLow !== null)
+      ? `Ø bei hohem Flug: ${c.avgSevHigh.toFixed(1)} · bei niedrigem: ${c.avgSevLow.toFixed(1)}`
+      : '';
+    return `<div class="insight">
+      <h4>${c.pollen}
+        <span class="tag" style="background:${color}">${str}</span>
+      </h4>
+      <p>${(c.corr*100).toFixed(0)} % Korrelation · ${c.n} Tage${cmp ? '<br>' + cmp : ''}</p>
+    </div>`;
+  }).join('');
+}
+
+function renderCorrBars() {
+  const el   = document.getElementById('corr-bars');
+  const corr = computeCorrelations();
+
+  if (!corr) { el.innerHTML = `<div style="color:var(--muted);font-size:.82rem">Keine Daten.</div>`; return; }
+
+  el.innerHTML = corr.map(c => {
+    const pct   = Math.max(0, +(c.corr * 100).toFixed(0));
+    const color = pct > 70 ? '#dc2626' : pct > 50 ? '#ea580c' : pct > 30 ? '#ca8a04' : '#16a34a';
+    return `<div class="corr-row">
+      <div class="corr-name">${c.pollen}</div>
+      <div class="corr-track">
+        <div class="corr-fill" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <div class="corr-pct">${pct} %</div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === name)
+  );
+  document.getElementById('tab-' + name).classList.add('active');
+
+  if (name === 'kalender') renderCalendar();
+  if (name === 'verlauf')  renderEntryList();
+  if (name === 'analyse')  renderAnalysis();
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+
+loadEntries();
+calMonth = new Date();
+refreshTodayBanner();
+fetchDWD();
+</script>
+</body>
+</html>
