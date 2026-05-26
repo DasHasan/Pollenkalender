@@ -185,7 +185,7 @@
       font-size: 0.8rem;
     }
     .cal-cell.future { background: #fafafa; color: #d1d5db; }
-    .cal-cell.past   { background: #f3f4f6; color: #9ca3af; }
+    .cal-cell.past   { background: #f3f4f6; color: #9ca3af; cursor: pointer; }
     .cal-cell.today  { outline: 2.5px solid var(--text); outline-offset: 1px; }
     .cal-cell.has    { cursor: pointer; color: white; }
     .cal-cell.has .cn { font-weight: 800; }
@@ -430,6 +430,18 @@ const CORS_PROXIES = [
 // Hamburg is part of "Geest, Schleswig-Holstein und Hamburg" (partregion_id 12)
 const HAMBURG_REGION_ID = 12;
 
+const OM_BASE  = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+const OM_LAT   = 53.5753;
+const OM_LON   = 10.0153;
+// Open-Meteo field → {German name, DWD thresholds [gering-max, mittel-max]}
+const OM_TYPES = {
+  grass_pollen:   { name:'Gräser',   hi:[5,30] },
+  birch_pollen:   { name:'Birke',    hi:[10,50] },
+  alder_pollen:   { name:'Erle',     hi:[10,100] },
+  mugwort_pollen: { name:'Beifuß',   hi:[5,10] },
+  ragweed_pollen: { name:'Ambrosia', hi:[5,10] },
+};
+
 /** Map API string values → numeric 0–3 */
 const LEVEL_NUM = {
   '-1':0, '0':0, '0-1':0.5, '1':1, '1-2':1.5,
@@ -459,6 +471,8 @@ let pollenData  = null; // Current DWD pollen data (all types, dynamic)
 let pollenTS    = null; // ISO timestamp of DWD last_update
 let selectedSev = null;
 let calMonth    = new Date();
+let histSev        = null;  // severity selected in historical entry form
+let histPollenData = null;  // Open-Meteo data for the open past-entry form
 
 // ═══════════════════════════════════════════════════════════
 // LOCAL STORAGE
@@ -555,6 +569,104 @@ function setStatus(type, msg) {
   const el = document.getElementById('status');
   el.className = 's-' + type + ' status';
   el.innerHTML = `<div class="status-dot"></div><span>${msg}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// OPEN-METEO HISTORICAL POLLEN
+// ═══════════════════════════════════════════════════════════
+
+function grainsToDWD(val, hi) {
+  if (!val || val <= 0) return '0';
+  if (val <= hi[0]) return '1';
+  if (val <= hi[1]) return '2';
+  return '3';
+}
+
+async function fetchHistoricalPollen(dateStr) {
+  const fields = Object.keys(OM_TYPES).join(',');
+  const url = `${OM_BASE}?latitude=${OM_LAT}&longitude=${OM_LON}` +
+              `&hourly=${fields}&start_date=${dateStr}&end_date=${dateStr}` +
+              `&timezone=Europe%2FBerlin`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const hourly = json.hourly;
+  const result = {};
+  for (const [field, info] of Object.entries(OM_TYPES)) {
+    const vals = (hourly[field] ?? []).filter(v => v !== null && v >= 0);
+    const mean = vals.length ? vals.reduce((s,v) => s+v, 0) / vals.length : 0;
+    result[info.name] = { today: grainsToDWD(mean, info.hi), tomorrow: '-1', dayafter_to: '-1' };
+  }
+  return result;
+}
+
+function renderHistPollenInfo(data) {
+  const active = Object.entries(data).filter(([,v]) => (LEVEL_NUM[v.today] ?? 0) > 0);
+  const rows = active.length
+    ? `<div class="mini-grid">${active.map(([name, v]) => {
+        const n = LEVEL_NUM[v.today] ?? 0;
+        const col = n >= 2 ? '#dc2626' : '#ca8a04';
+        return `<div class="mini-row"><span>${name}</span>
+          <span style="font-weight:800;color:${col}">${LEVEL_LBL[v.today]}</span></div>`;
+      }).join('')}</div>`
+    : `<div style="color:var(--muted);font-size:.75rem;padding:.25rem 0">Kein nennenswerter Pollenflug</div>`;
+  return `<div class="sec-lbl" style="margin-top:0">Pollenflug (Open-Meteo · DWD-Skala)</div>${rows}`;
+}
+
+function buildPastEntryForm(dateStr) {
+  const emojis = ['😊','🙂','😐','😣','😫'];
+  const labels = ['Keine','Leicht','Mittel','Stark','Extrem'];
+  const sevBtns = [1,2,3,4,5].map((s,i) =>
+    `<button type="button" class="sev-btn" data-s="${s}" id="hsb${s}" onclick="histPickSev(${s})">
+      <span class="e">${emojis[i]}</span>${labels[i]}
+    </button>`
+  ).join('');
+  return `
+    <div id="hist-pollen-info" style="margin-bottom:.875rem">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.72rem;color:var(--muted)">
+        <div class="status-dot" style="background:#f59e0b;animation:blink 1s infinite;flex-shrink:0"></div>
+        Lade historische Pollendaten…
+      </div>
+    </div>
+    <div class="sec-lbl">Schweregrad der Allergie</div>
+    <div class="sev-row">${sevBtns}</div>
+    <div style="margin-top:1rem">
+      <label for="hist-notes">Notizen (optional)</label>
+      <textarea id="hist-notes" placeholder="z.B. Augen jucken, Nase läuft…" style="margin-top:.4rem"></textarea>
+    </div>
+    <div class="sheet-btns">
+      <button class="btn btn-primary" id="hist-save-btn" disabled onclick="saveHistEntry('${dateStr}')">
+        Eintrag speichern
+      </button>
+      <button class="btn btn-outline" onclick="closeOverlay()">Abbrechen</button>
+    </div>`;
+}
+
+function histPickSev(n) {
+  histSev = n;
+  [1,2,3,4,5].forEach(s => {
+    const btn = document.getElementById('hsb' + s);
+    if (btn) btn.classList.toggle('sel', s === n);
+  });
+  const btn = document.getElementById('hist-save-btn');
+  if (btn) btn.disabled = false;
+}
+
+function saveHistEntry(dateStr) {
+  if (!histSev) return;
+  upsertEntry({
+    date:       dateStr,
+    severity:   histSev,
+    notes:      (document.getElementById('hist-notes')?.value ?? '').trim(),
+    pollenData: histPollenData,
+    savedAt:    new Date().toISOString()
+  });
+  histSev = null;
+  histPollenData = null;
+  closeOverlay();
+  renderCalendar();
+  renderEntryList();
+  renderAnalysis();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -782,11 +894,24 @@ function showDetail(dateStr) {
       <button class="btn btn-outline" onclick="closeOverlay()">Schließen</button>
     </div>`;
   } else {
-    html = `<div style="color:var(--muted);font-size:.85rem">Kein Eintrag für diesen Tag.</div>`;
+    histSev = null;
+    histPollenData = null;
+    html = buildPastEntryForm(dateStr);
   }
 
   document.getElementById('popup-body').innerHTML = html;
   document.getElementById('overlay').classList.add('open');
+
+  if (!entry) {
+    fetchHistoricalPollen(dateStr).then(data => {
+      histPollenData = data;
+      const el = document.getElementById('hist-pollen-info');
+      if (el) el.innerHTML = renderHistPollenInfo(data);
+    }).catch(() => {
+      const el = document.getElementById('hist-pollen-info');
+      if (el) el.innerHTML = `<div style="font-size:.75rem;color:#dc2626">Pollendaten konnten nicht geladen werden</div>`;
+    });
+  }
 }
 
 function closeOverlay(e) {
