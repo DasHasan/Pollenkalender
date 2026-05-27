@@ -287,10 +287,15 @@
 <body>
 
 <header>
-  <div>
+  <div style="flex:1">
     <h1>🌿 Pollenkalender</h1>
-    <div class="sub">Hamburg · Allergie-Tagebuch</div>
+    <div class="sub"><span id="header-city">Hamburg</span> · Allergie-Tagebuch</div>
   </div>
+  <button id="loc-btn" onclick="detectLocation()"
+    style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
+           width:36px;height:36px;font-size:1.1rem;cursor:pointer;flex-shrink:0">
+    📍
+  </button>
 </header>
 
 <nav>
@@ -429,9 +434,43 @@ const CORS_PROXIES = [
 ];
 // Hamburg is part of "Geest, Schleswig-Holstein und Hamburg" (partregion_id 12)
 const HAMBURG_REGION_ID = 12;
+const LOCATION_KEY = 'pollenkalender_location';
+
+// Maps German federal state names (from Nominatim) to DWD region name keywords
+const STATE_KEYWORDS = {
+  'Hamburg':                ['Hamburg'],
+  'Schleswig-Holstein':     ['Schleswig', 'Holstein', 'Geest', 'Marschen'],
+  'Mecklenburg-Vorpommern': ['Mecklenburg'],
+  'Brandenburg':            ['Brandenburg'],
+  'Berlin':                 ['Berlin', 'Brandenburg'],
+  'Sachsen-Anhalt':         ['Sachsen-Anhalt'],
+  'Sachsen':                ['Sachsen'],
+  'Thüringen':              ['Thüringen'],
+  'Niedersachsen':          ['Niedersachsen', 'Bremen'],
+  'Bremen':                 ['Bremen', 'Niedersachsen'],
+  'Nordrhein-Westfalen':    ['Nordrhein'],
+  'Rheinland-Pfalz':        ['Rheinland'],
+  'Saarland':               ['Saarland', 'Rheinland'],
+  'Hessen':                 ['Hessen'],
+  'Bayern':                 ['Bayern'],
+  'Baden-Württemberg':      ['Baden'],
+};
+// Approximate centers of DWD sub-regions for nearest-neighbor selection
+const DWD_SUB_CENTERS = {
+  'Alpenvorland':   { lat:47.9, lon:11.3 },
+  'Donau':          { lat:48.6, lon:12.0 },
+  'Bayerischer Wald':{ lat:48.9,lon:13.0 },
+  'Mainfranken':    { lat:49.7, lon:10.0 },
+  'Oberrhein':      { lat:48.0, lon:7.8  },
+  'Hochrhein':      { lat:47.7, lon:8.2  },
+  'Schwarzwald':    { lat:48.3, lon:8.5  },
+  'Neckar':         { lat:49.0, lon:9.2  },
+  'Marschen':       { lat:54.8, lon:9.0  },
+  'Geest':          { lat:53.8, lon:10.0 },
+};
 
 const OM_BASE  = 'https://air-quality-api.open-meteo.com/v1/air-quality';
-const OM_LAT   = 53.5753;
+const OM_LAT   = 53.5753;  // Hamburg default
 const OM_LON   = 10.0153;
 // Open-Meteo field → {German name, DWD thresholds [gering-max, mittel-max]}
 const OM_TYPES = {
@@ -473,6 +512,13 @@ let selectedSev = null;
 let calMonth    = new Date();
 let histSev        = null;  // severity selected in historical entry form
 let histPollenData = null;  // Open-Meteo data for the open past-entry form
+
+// User location (defaults to Hamburg until detected/saved)
+let userLat       = OM_LAT;
+let userLon       = OM_LON;
+let userCity      = 'Hamburg';
+let userDWDPartId = HAMBURG_REGION_ID;  // partregion_id to match in DWD JSON
+let userDWDRegId  = null;               // region_id (only needed when partregion_id = -1)
 
 // ═══════════════════════════════════════════════════════════
 // LOCAL STORAGE
@@ -536,15 +582,117 @@ async function fetchWithProxy(url) {
   throw lastErr;
 }
 
+// ═══════════════════════════════════════════════════════════
+// LOCATION DETECTION
+// ═══════════════════════════════════════════════════════════
+
+function loadSavedLocation() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCATION_KEY));
+    if (!saved) return;
+    userLat       = saved.lat;
+    userLon       = saved.lon;
+    userCity      = saved.city;
+    userDWDPartId = saved.dwdPartId;
+    userDWDRegId  = saved.dwdRegId ?? null;
+    updateHeaderCity();
+  } catch {}
+}
+
+function updateHeaderCity() {
+  const el = document.getElementById('header-city');
+  if (el) el.textContent = userCity;
+}
+
+function findDWDRegionEntry(content, lat, lon, stateName) {
+  const keywords = STATE_KEYWORDS[stateName] ?? [];
+  if (!keywords.length) return null;
+
+  const matches = content.filter(r => {
+    const name = ((r.partregion_name ?? '') + ' ' + (r.region_name ?? '')).toLowerCase();
+    if (!keywords.some(kw => name.includes(kw.toLowerCase()))) return false;
+    // Prevent "Sachsen" matching "Sachsen-Anhalt" entries
+    if (stateName === 'Sachsen' && name.includes('anhalt')) return false;
+    return true;
+  });
+
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+
+  // Multiple sub-regions (Bayern, BW, SH): pick nearest by approx center
+  let nearest = matches[0];
+  let minDist = Infinity;
+  for (const r of matches) {
+    const rName = (r.partregion_name ?? r.region_name ?? '').toLowerCase();
+    for (const [key, center] of Object.entries(DWD_SUB_CENTERS)) {
+      if (rName.includes(key.toLowerCase())) {
+        const d = Math.hypot(lat - center.lat, lon - center.lon);
+        if (d < minDist) { minDist = d; nearest = r; }
+        break;
+      }
+    }
+  }
+  return nearest;
+}
+
+async function detectLocation() {
+  const btn = document.getElementById('loc-btn');
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    const pos = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+    );
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+
+    // Reverse geocode via Nominatim
+    const geoRes  = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=de`,
+      { headers: { 'User-Agent': 'Pollenkalender/1.0' } }
+    );
+    const geoJson = await geoRes.json();
+    const city  = geoJson.address?.city ?? geoJson.address?.town ?? geoJson.address?.village ?? 'Unbekannt';
+    const state = geoJson.address?.state ?? '';
+
+    // Find matching DWD region from fresh JSON
+    const dwdRes  = await fetchWithProxy(DWD_URL);
+    const dwdJson = await dwdRes.json();
+    const entry   = findDWDRegionEntry(dwdJson.content, lat, lon, state);
+    if (!entry) throw new Error('DWD-Region für "' + state + '" nicht erkannt');
+
+    // Persist and apply
+    userLat       = lat;
+    userLon       = lon;
+    userCity      = city;
+    userDWDPartId = entry.partregion_id;
+    userDWDRegId  = entry.partregion_id === -1 ? entry.region_id : null;
+
+    localStorage.setItem(LOCATION_KEY, JSON.stringify({
+      lat, lon, city, state,
+      dwdPartId: userDWDPartId,
+      dwdRegId:  userDWDRegId
+    }));
+
+    updateHeaderCity();
+    fetchDWD();
+  } catch(err) {
+    alert('Standort konnte nicht ermittelt werden: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = '📍'; btn.disabled = false; }
+  }
+}
+
 async function fetchDWD() {
   setStatus('loading', 'Lade DWD-Pollenflugdaten…');
   try {
     const res  = await fetchWithProxy(DWD_URL);
     const json = await res.json();
 
-    // Find Hamburg partregion dynamically
-    const region = json.content.find(r => r.partregion_id === HAMBURG_REGION_ID);
-    if (!region) throw new Error('Hamburg-Partregion nicht gefunden (ID ' + HAMBURG_REGION_ID + ')');
+    const region = json.content.find(r =>
+      r.partregion_id === userDWDPartId &&
+      (userDWDRegId === null || r.region_id === userDWDRegId)
+    );
+    if (!region) throw new Error(`DWD-Region nicht gefunden (partregion_id ${userDWDPartId})`);
 
     pollenData = region.Pollen; // all pollen types, fully dynamic
     pollenTS   = json.last_update;
@@ -584,7 +732,7 @@ function grainsToDWD(val, hi) {
 
 async function fetchHistoricalPollen(dateStr) {
   const fields = Object.keys(OM_TYPES).join(',');
-  const url = `${OM_BASE}?latitude=${OM_LAT}&longitude=${OM_LON}` +
+  const url = `${OM_BASE}?latitude=${userLat}&longitude=${userLon}` +
               `&hourly=${fields}&start_date=${dateStr}&end_date=${dateStr}` +
               `&timezone=Europe%2FBerlin`;
   const res = await fetch(url);
@@ -1054,6 +1202,7 @@ function showTab(name) {
 // ═══════════════════════════════════════════════════════════
 
 loadEntries();
+loadSavedLocation();
 calMonth = new Date();
 refreshTodayBanner();
 fetchDWD();
