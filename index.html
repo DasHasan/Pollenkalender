@@ -131,14 +131,6 @@
     /* ── Form ────────────────────────────────────── */
     .form-gap { display: flex; flex-direction: column; gap: 1rem; }
     label { font-size: 0.8rem; font-weight: 700; }
-    textarea {
-      width: 100%; padding: 0.75rem; margin-top: 0.4rem;
-      border: 1.5px solid var(--border); border-radius: 10px;
-      font-family: inherit; font-size: 1rem; /* prevent iOS zoom */
-      resize: none; min-height: 80px;
-    }
-    textarea:focus { outline: none; border-color: var(--green); }
-
     .btn {
       width: 100%; padding: 0.9rem; border: none; border-radius: 12px;
       font-size: 0.95rem; font-weight: 800; cursor: pointer;
@@ -221,7 +213,6 @@
     }
     .entry-date  { font-weight: 800; font-size: 0.82rem; }
     .entry-sub   { font-size: 0.73rem; color: var(--muted); margin-top: 1px; }
-    .entry-notes { font-size: 0.78rem; margin-top: 0.25rem; }
     .entry-pollen{ font-size: 0.68rem; color: var(--muted); margin-top: 0.3rem; }
 
     /* ── Analysis ────────────────────────────────── */
@@ -356,10 +347,6 @@
               <span class="e">😫</span>Extrem
             </button>
           </div>
-        </div>
-        <div>
-          <label for="notes">Notizen (optional)</label>
-          <textarea id="notes" placeholder="z.B. Augen jucken, Nase läuft…"></textarea>
         </div>
         <button type="submit" class="btn btn-primary" id="save-btn" disabled>
           Eintrag speichern
@@ -505,7 +492,7 @@ const WEEKDAYS   = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 // STATE
 // ═══════════════════════════════════════════════════════════
 
-let entries     = [];   // [{date, severity, notes, pollenData, savedAt}]
+let entries     = [];   // [{date, severity, pollenData, savedAt}]
 let pollenData  = null; // Current DWD pollen data (all types, dynamic)
 let pollenTS    = null; // ISO timestamp of DWD last_update
 let selectedSev = null;
@@ -780,10 +767,6 @@ function buildPastEntryForm(dateStr) {
     </div>
     <div class="sec-lbl">Schweregrad der Allergie</div>
     <div class="sev-row">${sevBtns}</div>
-    <div style="margin-top:1rem">
-      <label for="hist-notes">Notizen (optional)</label>
-      <textarea id="hist-notes" placeholder="z.B. Augen jucken, Nase läuft…" style="margin-top:.4rem"></textarea>
-    </div>
     <div class="sheet-btns">
       <button class="btn btn-primary" id="hist-save-btn" disabled onclick="saveHistEntry('${dateStr}')">
         Eintrag speichern
@@ -807,7 +790,6 @@ function saveHistEntry(dateStr) {
   upsertEntry({
     date:       dateStr,
     severity:   histSev,
-    notes:      (document.getElementById('hist-notes')?.value ?? '').trim(),
     pollenData: histPollenData,
     savedAt:    new Date().toISOString()
   });
@@ -864,8 +846,7 @@ function refreshTodayBanner() {
     ban.style.display = 'block';
     frm.style.display = 'none';
     document.getElementById('exists-detail').textContent =
-      `Schweregrad ${ex.severity} – ${SEV_LABEL[ex.severity]}` +
-      (ex.notes ? ` · "${ex.notes}"` : '');
+      `Schweregrad ${ex.severity} – ${SEV_LABEL[ex.severity]}`;
   } else {
     ban.style.display = 'none';
     frm.style.display = 'flex';
@@ -876,7 +857,6 @@ function editToday() {
   const ex = getEntry(today());
   if (ex) {
     pickSev(ex.severity);
-    document.getElementById('notes').value = ex.notes ?? '';
   }
   document.getElementById('exists-banner').style.display = 'none';
   document.getElementById('entry-form').style.display    = 'flex';
@@ -897,7 +877,6 @@ document.getElementById('entry-form').addEventListener('submit', e => {
   const entry = {
     date:       today(),
     severity:   selectedSev,
-    notes:      document.getElementById('notes').value.trim(),
     pollenData: pollenData ? JSON.parse(JSON.stringify(pollenData)) : null,
     savedAt:    new Date().toISOString()
   };
@@ -906,7 +885,6 @@ document.getElementById('entry-form').addEventListener('submit', e => {
   // Reset
   selectedSev = null;
   document.querySelectorAll('.sev-btn').forEach(b => b.classList.remove('sel'));
-  document.getElementById('notes').value = '';
   document.getElementById('save-btn').disabled = true;
 
   refreshTodayBanner();
@@ -992,7 +970,6 @@ function renderEntryList() {
       <div>
         <div class="entry-date">${fmtDate(e.date)}</div>
         <div class="entry-sub">${SEV_LABEL[e.severity]} Allergie</div>
-        ${e.notes ? `<div class="entry-notes">${e.notes}</div>` : ''}
         <div class="entry-pollen">🌿 ${pollenSummary}</div>
       </div>
     </div>`;
@@ -1018,7 +995,6 @@ function showDetail(dateStr) {
         </div>
         <div>
           <div style="font-weight:800">${SEV_LABEL[entry.severity]} Allergie</div>
-          ${entry.notes ? `<div style="font-size:.82rem;color:var(--muted);margin-top:.2rem">${entry.notes}</div>` : ''}
         </div>
       </div>`;
 
