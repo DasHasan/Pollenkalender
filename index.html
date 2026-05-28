@@ -95,12 +95,6 @@
     .pollen-tile .p-name { font-size: 0.65rem; font-weight: 800; }
     .pollen-tile .p-val  { font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 0.15rem 0; }
     .pollen-tile .p-lbl  { font-size: 0.55rem; line-height: 1.2; }
-    .pollen-tile .p-fore {
-      display: flex; justify-content: space-around;
-      margin-top: 0.35rem; font-size: 0.5rem; gap: 0;
-    }
-    .pollen-tile .p-fore span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-    .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 
     /* Level colours */
     .lv-none { border-color:#9ca3af; background:rgba(156,163,175,.08); color:#6b7280; }
@@ -732,7 +726,7 @@ async function fetchHistoricalPollen(dateStr) {
   for (const [field, info] of Object.entries(OM_TYPES)) {
     const vals = (hourly[field] ?? []).filter(v => v !== null && v >= 0);
     const mean = vals.length ? vals.reduce((s,v) => s+v, 0) / vals.length : 0;
-    result[info.name] = { today: grainsToDWD(mean, info.hi), tomorrow: '-1', dayafter_to: '-1' };
+    result[info.name] = { today: grainsToDWD(mean, info.hi) };
   }
   return result;
 }
@@ -805,14 +799,6 @@ function saveHistEntry(dateStr) {
 // POLLEN GRID RENDERING
 // ═══════════════════════════════════════════════════════════
 
-function dotColor(val) {
-  const n = LEVEL_NUM[val] ?? 0;
-  if (n === 0) return '#16a34a';
-  if (n <= 1)  return '#ca8a04';
-  if (n <= 2)  return '#ea580c';
-  return '#dc2626';
-}
-
 function renderPollenGrid() {
   if (!pollenData) return;
 
@@ -826,11 +812,6 @@ function renderPollenGrid() {
       <div class="p-name">${name}</div>
       <div class="p-val">${d.today === '-1' ? '–' : d.today}</div>
       <div class="p-lbl">${LEVEL_LBL[d.today] ?? ''}</div>
-      <div class="p-fore">
-        <span><span class="dot" style="background:${dotColor(d.today)}"></span>H</span>
-        <span><span class="dot" style="background:${dotColor(d.tomorrow)}"></span>M</span>
-        <span><span class="dot" style="background:${dotColor(d.dayafter_to)}"></span>Ü</span>
-      </div>
     </div>`).join('');
 }
 
