@@ -95,12 +95,6 @@
     .pollen-tile .p-name { font-size: 0.65rem; font-weight: 800; }
     .pollen-tile .p-val  { font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 0.15rem 0; }
     .pollen-tile .p-lbl  { font-size: 0.55rem; line-height: 1.2; }
-    .pollen-tile .p-fore {
-      display: flex; justify-content: space-around;
-      margin-top: 0.35rem; font-size: 0.5rem; gap: 0;
-    }
-    .pollen-tile .p-fore span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-    .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 
     /* Level colours */
     .lv-none { border-color:#9ca3af; background:rgba(156,163,175,.08); color:#6b7280; }
@@ -131,14 +125,6 @@
     /* ── Form ────────────────────────────────────── */
     .form-gap { display: flex; flex-direction: column; gap: 1rem; }
     label { font-size: 0.8rem; font-weight: 700; }
-    textarea {
-      width: 100%; padding: 0.75rem; margin-top: 0.4rem;
-      border: 1.5px solid var(--border); border-radius: 10px;
-      font-family: inherit; font-size: 1rem; /* prevent iOS zoom */
-      resize: none; min-height: 80px;
-    }
-    textarea:focus { outline: none; border-color: var(--green); }
-
     .btn {
       width: 100%; padding: 0.9rem; border: none; border-radius: 12px;
       font-size: 0.95rem; font-weight: 800; cursor: pointer;
@@ -185,7 +171,7 @@
       font-size: 0.8rem;
     }
     .cal-cell.future { background: #fafafa; color: #d1d5db; }
-    .cal-cell.past   { background: #f3f4f6; color: #9ca3af; }
+    .cal-cell.past   { background: #f3f4f6; color: #9ca3af; cursor: pointer; }
     .cal-cell.today  { outline: 2.5px solid var(--text); outline-offset: 1px; }
     .cal-cell.has    { cursor: pointer; color: white; }
     .cal-cell.has .cn { font-weight: 800; }
@@ -221,7 +207,6 @@
     }
     .entry-date  { font-weight: 800; font-size: 0.82rem; }
     .entry-sub   { font-size: 0.73rem; color: var(--muted); margin-top: 1px; }
-    .entry-notes { font-size: 0.78rem; margin-top: 0.25rem; }
     .entry-pollen{ font-size: 0.68rem; color: var(--muted); margin-top: 0.3rem; }
 
     /* ── Analysis ────────────────────────────────── */
@@ -287,10 +272,15 @@
 <body>
 
 <header>
-  <div>
+  <div style="flex:1">
     <h1>🌿 Pollenkalender</h1>
-    <div class="sub">Hamburg · Allergie-Tagebuch</div>
+    <div class="sub"><span id="header-city">Hamburg</span> · Allergie-Tagebuch</div>
   </div>
+  <button id="loc-btn" onclick="detectLocation()"
+    style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
+           width:36px;height:36px;font-size:1.1rem;cursor:pointer;flex-shrink:0">
+    📍
+  </button>
 </header>
 
 <nav>
@@ -314,7 +304,7 @@
   <div id="tab-heute" class="tab active">
 
     <div class="card">
-      <div class="card-title">📍 Pollenflug Hamburg</div>
+      <div class="card-title">📍 Pollenflug <span id="dwd-city">Hamburg</span></div>
       <div id="status" class="status s-loading">
         <div class="status-dot"></div><span>Lade DWD-Daten…</span>
       </div>
@@ -351,10 +341,6 @@
               <span class="e">😫</span>Extrem
             </button>
           </div>
-        </div>
-        <div>
-          <label for="notes">Notizen (optional)</label>
-          <textarea id="notes" placeholder="z.B. Augen jucken, Nase läuft…"></textarea>
         </div>
         <button type="submit" class="btn btn-primary" id="save-btn" disabled>
           Eintrag speichern
@@ -429,6 +415,52 @@ const CORS_PROXIES = [
 ];
 // Hamburg is part of "Geest, Schleswig-Holstein und Hamburg" (partregion_id 12)
 const HAMBURG_REGION_ID = 12;
+const LOCATION_KEY = 'pollenkalender_location';
+
+// Maps German federal state names (from Nominatim) to DWD region name keywords
+const STATE_KEYWORDS = {
+  'Hamburg':                ['Hamburg'],
+  'Schleswig-Holstein':     ['Schleswig', 'Holstein', 'Geest', 'Marschen'],
+  'Mecklenburg-Vorpommern': ['Mecklenburg'],
+  'Brandenburg':            ['Brandenburg'],
+  'Berlin':                 ['Berlin', 'Brandenburg'],
+  'Sachsen-Anhalt':         ['Sachsen-Anhalt'],
+  'Sachsen':                ['Sachsen'],
+  'Thüringen':              ['Thüringen'],
+  'Niedersachsen':          ['Niedersachsen', 'Bremen'],
+  'Bremen':                 ['Bremen', 'Niedersachsen'],
+  'Nordrhein-Westfalen':    ['Nordrhein'],
+  'Rheinland-Pfalz':        ['Rheinland'],
+  'Saarland':               ['Saarland', 'Rheinland'],
+  'Hessen':                 ['Hessen'],
+  'Bayern':                 ['Bayern'],
+  'Baden-Württemberg':      ['Baden'],
+};
+// Approximate centers of DWD sub-regions for nearest-neighbor selection
+const DWD_SUB_CENTERS = {
+  'Alpenvorland':   { lat:47.9, lon:11.3 },
+  'Donau':          { lat:48.6, lon:12.0 },
+  'Bayerischer Wald':{ lat:48.9,lon:13.0 },
+  'Mainfranken':    { lat:49.7, lon:10.0 },
+  'Oberrhein':      { lat:48.0, lon:7.8  },
+  'Hochrhein':      { lat:47.7, lon:8.2  },
+  'Schwarzwald':    { lat:48.3, lon:8.5  },
+  'Neckar':         { lat:49.0, lon:9.2  },
+  'Marschen':       { lat:54.8, lon:9.0  },
+  'Geest':          { lat:53.8, lon:10.0 },
+};
+
+const OM_BASE  = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+const OM_LAT   = 53.5753;  // Hamburg default
+const OM_LON   = 10.0153;
+// Open-Meteo field → {German name, DWD thresholds [gering-max, mittel-max]}
+const OM_TYPES = {
+  grass_pollen:   { name:'Gräser',   hi:[5,30] },
+  birch_pollen:   { name:'Birke',    hi:[10,50] },
+  alder_pollen:   { name:'Erle',     hi:[10,100] },
+  mugwort_pollen: { name:'Beifuß',   hi:[5,10] },
+  ragweed_pollen: { name:'Ambrosia', hi:[5,10] },
+};
 
 /** Map API string values → numeric 0–3 */
 const LEVEL_NUM = {
@@ -454,11 +486,20 @@ const WEEKDAYS   = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 // STATE
 // ═══════════════════════════════════════════════════════════
 
-let entries     = [];   // [{date, severity, notes, pollenData, savedAt}]
+let entries     = [];   // [{date, severity, pollenData, savedAt}]
 let pollenData  = null; // Current DWD pollen data (all types, dynamic)
 let pollenTS    = null; // ISO timestamp of DWD last_update
 let selectedSev = null;
 let calMonth    = new Date();
+let histSev        = null;  // severity selected in historical entry form
+let histPollenData = null;  // Open-Meteo data for the open past-entry form
+
+// User location (defaults to Hamburg until detected/saved)
+let userLat       = OM_LAT;
+let userLon       = OM_LON;
+let userCity      = 'Hamburg';
+let userDWDPartId = HAMBURG_REGION_ID;  // partregion_id to match in DWD JSON
+let userDWDRegId  = null;               // region_id (only needed when partregion_id = -1)
 
 // ═══════════════════════════════════════════════════════════
 // LOCAL STORAGE
@@ -522,15 +563,119 @@ async function fetchWithProxy(url) {
   throw lastErr;
 }
 
+// ═══════════════════════════════════════════════════════════
+// LOCATION DETECTION
+// ═══════════════════════════════════════════════════════════
+
+function loadSavedLocation() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCATION_KEY));
+    if (!saved) return;
+    userLat       = saved.lat;
+    userLon       = saved.lon;
+    userCity      = saved.city;
+    userDWDPartId = saved.dwdPartId;
+    userDWDRegId  = saved.dwdRegId ?? null;
+    updateHeaderCity();
+  } catch {}
+}
+
+function updateHeaderCity() {
+  ['header-city', 'dwd-city'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = userCity;
+  });
+}
+
+function findDWDRegionEntry(content, lat, lon, stateName) {
+  const keywords = STATE_KEYWORDS[stateName] ?? [];
+  if (!keywords.length) return null;
+
+  const matches = content.filter(r => {
+    const name = ((r.partregion_name ?? '') + ' ' + (r.region_name ?? '')).toLowerCase();
+    if (!keywords.some(kw => name.includes(kw.toLowerCase()))) return false;
+    // Prevent "Sachsen" matching "Sachsen-Anhalt" entries
+    if (stateName === 'Sachsen' && name.includes('anhalt')) return false;
+    return true;
+  });
+
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+
+  // Multiple sub-regions (Bayern, BW, SH): pick nearest by approx center
+  let nearest = matches[0];
+  let minDist = Infinity;
+  for (const r of matches) {
+    const rName = (r.partregion_name ?? r.region_name ?? '').toLowerCase();
+    for (const [key, center] of Object.entries(DWD_SUB_CENTERS)) {
+      if (rName.includes(key.toLowerCase())) {
+        const d = Math.hypot(lat - center.lat, lon - center.lon);
+        if (d < minDist) { minDist = d; nearest = r; }
+        break;
+      }
+    }
+  }
+  return nearest;
+}
+
+async function detectLocation() {
+  const btn = document.getElementById('loc-btn');
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    const pos = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+    );
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+
+    // Reverse geocode via Nominatim
+    const geoRes  = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=de`,
+      { headers: { 'User-Agent': 'Pollenkalender/1.0' } }
+    );
+    const geoJson = await geoRes.json();
+    const city  = geoJson.address?.city ?? geoJson.address?.town ?? geoJson.address?.village ?? 'Unbekannt';
+    const state = geoJson.address?.state ?? '';
+
+    // Find matching DWD region from fresh JSON
+    const dwdRes  = await fetchWithProxy(DWD_URL);
+    const dwdJson = await dwdRes.json();
+    const entry   = findDWDRegionEntry(dwdJson.content, lat, lon, state);
+    if (!entry) throw new Error('DWD-Region für "' + state + '" nicht erkannt');
+
+    // Persist and apply
+    userLat       = lat;
+    userLon       = lon;
+    userCity      = city;
+    userDWDPartId = entry.partregion_id;
+    userDWDRegId  = entry.partregion_id === -1 ? entry.region_id : null;
+
+    localStorage.setItem(LOCATION_KEY, JSON.stringify({
+      lat, lon, city, state,
+      dwdPartId: userDWDPartId,
+      dwdRegId:  userDWDRegId
+    }));
+
+    updateHeaderCity();
+    fetchDWD();
+  } catch(err) {
+    alert('Standort konnte nicht ermittelt werden: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = '📍'; btn.disabled = false; }
+  }
+}
+
 async function fetchDWD() {
   setStatus('loading', 'Lade DWD-Pollenflugdaten…');
   try {
     const res  = await fetchWithProxy(DWD_URL);
     const json = await res.json();
 
-    // Find Hamburg partregion dynamically
-    const region = json.content.find(r => r.partregion_id === HAMBURG_REGION_ID);
-    if (!region) throw new Error('Hamburg-Partregion nicht gefunden (ID ' + HAMBURG_REGION_ID + ')');
+    const region = json.content.find(r =>
+      r.partregion_id === userDWDPartId &&
+      (userDWDRegId === null || r.region_id === userDWDRegId)
+    );
+    if (!region) throw new Error(`DWD-Region nicht gefunden (partregion_id ${userDWDPartId})`);
 
     pollenData = region.Pollen; // all pollen types, fully dynamic
     pollenTS   = json.last_update;
@@ -558,16 +703,101 @@ function setStatus(type, msg) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// POLLEN GRID RENDERING
+// OPEN-METEO HISTORICAL POLLEN
 // ═══════════════════════════════════════════════════════════
 
-function dotColor(val) {
-  const n = LEVEL_NUM[val] ?? 0;
-  if (n === 0) return '#16a34a';
-  if (n <= 1)  return '#ca8a04';
-  if (n <= 2)  return '#ea580c';
-  return '#dc2626';
+function grainsToDWD(val, hi) {
+  if (!val || val <= 0) return '0';
+  if (val <= hi[0]) return '1';
+  if (val <= hi[1]) return '2';
+  return '3';
 }
+
+async function fetchHistoricalPollen(dateStr) {
+  const fields = Object.keys(OM_TYPES).join(',');
+  const url = `${OM_BASE}?latitude=${userLat}&longitude=${userLon}` +
+              `&hourly=${fields}&start_date=${dateStr}&end_date=${dateStr}` +
+              `&timezone=Europe%2FBerlin`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const hourly = json.hourly;
+  const result = {};
+  for (const [field, info] of Object.entries(OM_TYPES)) {
+    const vals = (hourly[field] ?? []).filter(v => v !== null && v >= 0);
+    const mean = vals.length ? vals.reduce((s,v) => s+v, 0) / vals.length : 0;
+    result[info.name] = { today: grainsToDWD(mean, info.hi) };
+  }
+  return result;
+}
+
+function renderHistPollenInfo(data) {
+  const active = Object.entries(data).filter(([,v]) => (LEVEL_NUM[v.today] ?? 0) > 0);
+  const rows = active.length
+    ? `<div class="mini-grid">${active.map(([name, v]) => {
+        const n = LEVEL_NUM[v.today] ?? 0;
+        const col = n >= 2 ? '#dc2626' : '#ca8a04';
+        return `<div class="mini-row"><span>${name}</span>
+          <span style="font-weight:800;color:${col}">${LEVEL_LBL[v.today]}</span></div>`;
+      }).join('')}</div>`
+    : `<div style="color:var(--muted);font-size:.75rem;padding:.25rem 0">Kein nennenswerter Pollenflug</div>`;
+  return `<div class="sec-lbl" style="margin-top:0">Pollenflug (Open-Meteo · DWD-Skala)</div>${rows}`;
+}
+
+function buildPastEntryForm(dateStr) {
+  const emojis = ['😊','🙂','😐','😣','😫'];
+  const labels = ['Keine','Leicht','Mittel','Stark','Extrem'];
+  const sevBtns = [1,2,3,4,5].map((s,i) =>
+    `<button type="button" class="sev-btn" data-s="${s}" id="hsb${s}" onclick="histPickSev(${s})">
+      <span class="e">${emojis[i]}</span>${labels[i]}
+    </button>`
+  ).join('');
+  return `
+    <div id="hist-pollen-info" style="margin-bottom:.875rem">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.72rem;color:var(--muted)">
+        <div class="status-dot" style="background:#f59e0b;animation:blink 1s infinite;flex-shrink:0"></div>
+        Lade historische Pollendaten…
+      </div>
+    </div>
+    <div class="sec-lbl">Schweregrad der Allergie</div>
+    <div class="sev-row">${sevBtns}</div>
+    <div class="sheet-btns">
+      <button class="btn btn-primary" id="hist-save-btn" disabled onclick="saveHistEntry('${dateStr}')">
+        Eintrag speichern
+      </button>
+      <button class="btn btn-outline" onclick="closeOverlay()">Abbrechen</button>
+    </div>`;
+}
+
+function histPickSev(n) {
+  histSev = n;
+  [1,2,3,4,5].forEach(s => {
+    const btn = document.getElementById('hsb' + s);
+    if (btn) btn.classList.toggle('sel', s === n);
+  });
+  const btn = document.getElementById('hist-save-btn');
+  if (btn) btn.disabled = false;
+}
+
+function saveHistEntry(dateStr) {
+  if (!histSev) return;
+  upsertEntry({
+    date:       dateStr,
+    severity:   histSev,
+    pollenData: histPollenData,
+    savedAt:    new Date().toISOString()
+  });
+  histSev = null;
+  histPollenData = null;
+  closeOverlay();
+  renderCalendar();
+  renderEntryList();
+  renderAnalysis();
+}
+
+// ═══════════════════════════════════════════════════════════
+// POLLEN GRID RENDERING
+// ═══════════════════════════════════════════════════════════
 
 function renderPollenGrid() {
   if (!pollenData) return;
@@ -582,11 +812,6 @@ function renderPollenGrid() {
       <div class="p-name">${name}</div>
       <div class="p-val">${d.today === '-1' ? '–' : d.today}</div>
       <div class="p-lbl">${LEVEL_LBL[d.today] ?? ''}</div>
-      <div class="p-fore">
-        <span><span class="dot" style="background:${dotColor(d.today)}"></span>H</span>
-        <span><span class="dot" style="background:${dotColor(d.tomorrow)}"></span>M</span>
-        <span><span class="dot" style="background:${dotColor(d.dayafter_to)}"></span>Ü</span>
-      </div>
     </div>`).join('');
 }
 
@@ -602,8 +827,7 @@ function refreshTodayBanner() {
     ban.style.display = 'block';
     frm.style.display = 'none';
     document.getElementById('exists-detail').textContent =
-      `Schweregrad ${ex.severity} – ${SEV_LABEL[ex.severity]}` +
-      (ex.notes ? ` · "${ex.notes}"` : '');
+      `Schweregrad ${ex.severity} – ${SEV_LABEL[ex.severity]}`;
   } else {
     ban.style.display = 'none';
     frm.style.display = 'flex';
@@ -614,7 +838,6 @@ function editToday() {
   const ex = getEntry(today());
   if (ex) {
     pickSev(ex.severity);
-    document.getElementById('notes').value = ex.notes ?? '';
   }
   document.getElementById('exists-banner').style.display = 'none';
   document.getElementById('entry-form').style.display    = 'flex';
@@ -635,7 +858,6 @@ document.getElementById('entry-form').addEventListener('submit', e => {
   const entry = {
     date:       today(),
     severity:   selectedSev,
-    notes:      document.getElementById('notes').value.trim(),
     pollenData: pollenData ? JSON.parse(JSON.stringify(pollenData)) : null,
     savedAt:    new Date().toISOString()
   };
@@ -644,7 +866,6 @@ document.getElementById('entry-form').addEventListener('submit', e => {
   // Reset
   selectedSev = null;
   document.querySelectorAll('.sev-btn').forEach(b => b.classList.remove('sel'));
-  document.getElementById('notes').value = '';
   document.getElementById('save-btn').disabled = true;
 
   refreshTodayBanner();
@@ -730,7 +951,6 @@ function renderEntryList() {
       <div>
         <div class="entry-date">${fmtDate(e.date)}</div>
         <div class="entry-sub">${SEV_LABEL[e.severity]} Allergie</div>
-        ${e.notes ? `<div class="entry-notes">${e.notes}</div>` : ''}
         <div class="entry-pollen">🌿 ${pollenSummary}</div>
       </div>
     </div>`;
@@ -756,7 +976,6 @@ function showDetail(dateStr) {
         </div>
         <div>
           <div style="font-weight:800">${SEV_LABEL[entry.severity]} Allergie</div>
-          ${entry.notes ? `<div style="font-size:.82rem;color:var(--muted);margin-top:.2rem">${entry.notes}</div>` : ''}
         </div>
       </div>`;
 
@@ -782,11 +1001,24 @@ function showDetail(dateStr) {
       <button class="btn btn-outline" onclick="closeOverlay()">Schließen</button>
     </div>`;
   } else {
-    html = `<div style="color:var(--muted);font-size:.85rem">Kein Eintrag für diesen Tag.</div>`;
+    histSev = null;
+    histPollenData = null;
+    html = buildPastEntryForm(dateStr);
   }
 
   document.getElementById('popup-body').innerHTML = html;
   document.getElementById('overlay').classList.add('open');
+
+  if (!entry) {
+    fetchHistoricalPollen(dateStr).then(data => {
+      histPollenData = data;
+      const el = document.getElementById('hist-pollen-info');
+      if (el) el.innerHTML = renderHistPollenInfo(data);
+    }).catch(() => {
+      const el = document.getElementById('hist-pollen-info');
+      if (el) el.innerHTML = `<div style="font-size:.75rem;color:#dc2626">Pollendaten konnten nicht geladen werden</div>`;
+    });
+  }
 }
 
 function closeOverlay(e) {
@@ -929,6 +1161,7 @@ function showTab(name) {
 // ═══════════════════════════════════════════════════════════
 
 loadEntries();
+loadSavedLocation();
 calMonth = new Date();
 refreshTodayBanner();
 fetchDWD();
