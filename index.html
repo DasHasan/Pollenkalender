@@ -436,18 +436,34 @@ const STATE_KEYWORDS = {
   'Bayern':                 ['Bayern'],
   'Baden-Württemberg':      ['Baden'],
 };
-// Approximate centers of DWD sub-regions for nearest-neighbor selection
+// Approximate centers of DWD regions for nearest-neighbor selection.
+// Keys are partial matches against partregion_name or region_name in the DWD JSON.
 const DWD_SUB_CENTERS = {
-  'Alpenvorland':   { lat:47.9, lon:11.3 },
-  'Donau':          { lat:48.6, lon:12.0 },
-  'Bayerischer Wald':{ lat:48.9,lon:13.0 },
-  'Mainfranken':    { lat:49.7, lon:10.0 },
-  'Oberrhein':      { lat:48.0, lon:7.8  },
-  'Hochrhein':      { lat:47.7, lon:8.2  },
-  'Schwarzwald':    { lat:48.3, lon:8.5  },
-  'Neckar':         { lat:49.0, lon:9.2  },
-  'Marschen':       { lat:54.8, lon:9.0  },
-  'Geest':          { lat:53.8, lon:10.0 },
+  // Bayern sub-regions
+  'Alpenvorland':     { lat:47.9, lon:11.3 },
+  'Donau':            { lat:48.6, lon:12.0 },
+  'Bayerischer Wald': { lat:48.9, lon:13.0 },
+  'Mainfranken':      { lat:49.7, lon:10.0 },
+  // Baden-Württemberg sub-regions
+  'Oberrhein':        { lat:48.0, lon:7.8  },
+  'Hochrhein':        { lat:47.7, lon:8.2  },
+  'Schwarzwald':      { lat:48.3, lon:8.5  },
+  'Neckar':           { lat:49.0, lon:9.2  },
+  // Schleswig-Holstein sub-regions
+  'Inseln':           { lat:54.9, lon:8.6  },
+  'Marschen':         { lat:54.4, lon:8.9  },
+  'Geest':            { lat:54.0, lon:9.9  },
+  // All other top-level regions (used as coordinate fallback)
+  'Mecklenburg':      { lat:53.8, lon:12.5 },
+  'Westl. Niedersachsen': { lat:53.0, lon:8.4 },
+  'Östl. Niedersachsen':  { lat:52.7, lon:10.7 },
+  'Brandenburg':      { lat:52.5, lon:13.5 },
+  'Sachsen-Anhalt':   { lat:51.9, lon:11.6 },
+  'Thüringen':        { lat:50.9, lon:11.0 },
+  'Sachsen':          { lat:51.0, lon:13.2 },
+  'Nordrhein':        { lat:51.5, lon:7.5  },
+  'Hessen':           { lat:50.6, lon:9.0  },
+  'Rheinland':        { lat:49.8, lon:7.2  },
 };
 
 const OM_BASE  = 'https://air-quality-api.open-meteo.com/v1/air-quality';
@@ -587,6 +603,22 @@ function updateHeaderCity() {
   });
 }
 
+function findNearestDWDRegion(content, lat, lon) {
+  let nearest = null;
+  let minDist = Infinity;
+  for (const r of content) {
+    const rName = ((r.partregion_name ?? '') + ' ' + (r.region_name ?? '')).toLowerCase();
+    for (const [key, center] of Object.entries(DWD_SUB_CENTERS)) {
+      if (rName.includes(key.toLowerCase())) {
+        const d = Math.hypot(lat - center.lat, lon - center.lon);
+        if (d < minDist) { minDist = d; nearest = r; }
+        break;
+      }
+    }
+  }
+  return nearest;
+}
+
 function findDWDRegionEntry(content, lat, lon, stateName) {
   // Exact key lookup first, then fuzzy match for full city-state names
   // (e.g. Nominatim returns "Freie und Hansestadt Hamburg" instead of "Hamburg")
@@ -596,7 +628,8 @@ function findDWDRegionEntry(content, lat, lon, stateName) {
     const matchKey = sortedKeys.find(k => stateName.toLowerCase().includes(k.toLowerCase()));
     keywords = matchKey ? STATE_KEYWORDS[matchKey] : undefined;
   }
-  if (!keywords?.length) return null;
+  // Coordinate-based fallback when no state keyword matched
+  if (!keywords?.length) return findNearestDWDRegion(content, lat, lon);
 
   const matches = content.filter(r => {
     const name = ((r.partregion_name ?? '') + ' ' + (r.region_name ?? '')).toLowerCase();
@@ -606,7 +639,7 @@ function findDWDRegionEntry(content, lat, lon, stateName) {
     return true;
   });
 
-  if (!matches.length) return null;
+  if (!matches.length) return findNearestDWDRegion(content, lat, lon);
   if (matches.length === 1) return matches[0];
 
   // Multiple sub-regions (Bayern, BW, SH): pick nearest by approx center
